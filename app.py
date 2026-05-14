@@ -1,7 +1,7 @@
 import streamlit as st
 import pandas as pd
 import plotly.graph_objects as go
-from ml_engine import analyze_stocks, TOP_STOCKS, fetch_data, add_features, train_and_predict
+from ml_engine import analyze_stocks, TOP_STOCKS, fetch_data, add_features, train_and_predict, evaluate_historical
 
 st.set_page_config(page_title="IDX Stock Predictor", layout="wide", page_icon="📈")
 
@@ -107,3 +107,32 @@ if ticker_input:
             
         else:
             st.warning(f"Data untuk {ticker_input} tidak ditemukan atau gagal diakses.")
+
+st.divider()
+
+st.header("3. Pengujian Akurasi (Backtest H-1 sd H-3)")
+st.write("Uji keakuratan algoritma Random Forest untuk memprediksi arah pergerakan harga 3 hari terakhir secara mundur.")
+
+if st.button("Jalankan Uji Backtest H-1 sd H-3"):
+    with st.spinner(f"Melakukan backtest pada seluruh {len(TOP_STOCKS)} saham. Proses ini memakan waktu sekitar 1-2 menit, harap tunggu..."):
+        eval_df = evaluate_historical(TOP_STOCKS)
+        if not eval_df.empty:
+            def style_hasil(val):
+                if val == "BENAR": return 'color: green; font-weight: bold;'
+                elif val == "SALAH": return 'color: red; font-weight: bold;'
+                return 'color: gray;'
+                
+            st.dataframe(
+                eval_df.style.map(style_hasil, subset=['Hasil']),
+                use_container_width=True,
+                hide_index=True
+            )
+            
+            benar_count = len(eval_df[eval_df['Hasil'] == 'BENAR'])
+            salah_count = len(eval_df[eval_df['Hasil'] == 'SALAH'])
+            total_valid = benar_count + salah_count
+            if total_valid > 0:
+                akurasi = (benar_count / total_valid) * 100
+                st.info(f"**Tingkat Akurasi (Arah): {akurasi:.1f}%** (Dari {total_valid} tebakan non-netral)")
+        else:
+            st.error("Gagal melakukan backtest.")
