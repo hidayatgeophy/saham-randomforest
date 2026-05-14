@@ -140,3 +140,67 @@ def analyze_stocks(tickers=TOP_STOCKS):
         res_df = res_df.sort_values(by='Probabilitas Naik (%)', ascending=False).reset_index(drop=True)
         return res_df
     return pd.DataFrame()
+
+def evaluate_historical(tickers, days_back=3):
+    """Evaluates the model by predicting T-1 to T-3."""
+    results = []
+    
+    for ticker in tickers:
+        df = fetch_data(ticker, period="2y")
+        if df is None or df.empty:
+            continue
+            
+        df_feat = add_features(df)
+        features = ['RSI', 'MACD', 'MACD_Signal', 'SMA_20', 'SMA_50', 'Daily_Return', 'Volatility']
+        df_clean = df_feat.dropna(subset=features)
+        
+        if len(df_clean) < 50:
+            continue
+            
+        for day in range(1, days_back + 1):
+            # day=1 means predicting H-1.
+            # To predict H-1, we use features from H-2.
+            # In python negative indexing: -1 is H (Today), -2 is H-1, -3 is H-2.
+            idx = -(day + 2)
+            
+            # Training data must not contain idx or anything after it, 
+            # because the 'Target' of idx contains the answer for idx+1.
+            train_df = df_clean.iloc[:idx]
+            
+            # If not enough training data
+            if len(train_df) < 50:
+                continue
+                
+            X_train = train_df[features]
+            y_train = train_df['Target']
+            
+            model = RandomForestClassifier(n_estimators=100, max_depth=5, random_state=42)
+            model.fit(X_train, y_train)
+            
+            # Predict using features from H-2 (idx)
+            X_pred = df_clean.iloc[idx:idx+1][features]
+            prob_up = model.predict_proba(X_pred)[0][1]
+            
+            prediction_label = "Bullish" if prob_up > 0.55 else ("Bearish" if prob_up < 0.45 else "Neutral")
+            
+            # Actual prices: base is H-2, target is H-1
+            close_base = df_clean.iloc[idx]['Close']
+            close_target = df_clean.iloc[idx+1]['Close']
+            date_base = df_clean.index[idx].strftime("%Y-%m-%d")
+            date_target = df_clean.index[idx+1].strftime("%Y-%m-%d")
+            
+            actual_label = "Naik" if close_target > close_base else ("Turun" if close_target < close_base else "Tetap")
+            
+            is_correct = "BENAR" if (prob_up > 0.55 and close_target > close_base) or (prob_up < 0.45 and close_target <= close_base) else ("SALAH" if prob_up > 0.55 or prob_up < 0.45 else "NETRAL")
+            
+            results.append({
+                'Ticker': ticker.replace('.JK', ''),
+                'Hari Uji': f"H-{day}",
+                'Tgl Latih': date_base,
+                'Prediksi Arah': prediction_label,
+                'Tgl Target': date_target,
+                'Realita': actual_label,
+                'Hasil': is_correct
+            })
+        
+    return pd.DataFrame(results)
